@@ -5,9 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARKOS Launcher</title>
 
+  <!-- Brand typefaces -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Jost:wght@500;600;700&family=Work+Sans:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Microsoft Teams JavaScript SDK (loaded from Microsoft's CDN, no install required) -->
+  <script src="https://res.cdn.office.net/teams-js/2.24.0/js/MicrosoftTeams.min.js"
+          integrity="sha384-IRTYwedNwzGZSCgEDcMnXNm0wzkBYW6Vk1Q4iL9w7TtKvJ5JOmnpwlpHvNVqGhVe"
+          crossorigin="anonymous"></script>
 
   <style>
     :root {
@@ -143,9 +149,8 @@
     <div class="logo" aria-hidden="true">ARK</div>
 
     <h1>Opening ARKOS</h1>
-    <p class="subtitle">Redirecting you to ARKOS. If nothing happens within a few seconds, click the button below.</p>
+    <p class="subtitle">ARKOS will open in your default browser. If nothing happens within a few seconds, click the button below.</p>
 
-    <!-- No target="_blank" — Teams sandbox blocks popups. We navigate the top frame instead. -->
     <button class="btn" id="launchBtn" type="button">
       Open ARKOS
       <svg class="arrow" viewBox="0 0 24 24" aria-hidden="true">
@@ -163,29 +168,53 @@
       var ARKOS_URL = "https://arkos.arkinvest.palantirfoundry.com/";
       var statusEl = document.getElementById("status");
       var btn = document.getElementById("launchBtn");
+      var insideTeams = false;
 
-      // Teams sandboxes static tab iframes without 'allow-popups', so window.open() is blocked.
-      // Instead, navigate the top-level frame. Because the target domain is not in Teams'
-      // validDomains, Teams escalates the navigation to the user's default browser.
-      function goToArkos() {
-        statusEl.textContent = "Opening ARKOS in your browser…";
-        try {
-          // Preferred: navigate the topmost frame (escapes the Teams sandbox).
-          window.top.location.href = ARKOS_URL;
-        } catch (e) {
-          // If cross-origin access to window.top is denied, navigate self.
-          window.location.href = ARKOS_URL;
+      // Step 1: Initialize the Teams SDK. This call resolves successfully only when
+      // the page is actually running inside the Teams client. If we're in a normal
+      // browser (e.g., user testing the GitHub Pages URL directly), it rejects and
+      // we fall back to standard browser behavior.
+      function initializeTeams() {
+        if (typeof microsoftTeams === "undefined") {
+          // SDK didn't load (network blocked, CDN down). Fall back gracefully.
+          return Promise.reject(new Error("Teams SDK not loaded"));
+        }
+        return microsoftTeams.app.initialize().then(function () {
+          insideTeams = true;
+        });
+      }
+
+      // Step 2: Open ARKOS using the right mechanism for the environment.
+      //   - Inside Teams: use microsoftTeams.app.openLink(), which asks Teams to
+      //     handle the URL externally (opens in user's default browser, Teams stays put).
+      //   - Outside Teams: use window.open() with a target so it opens in a new tab.
+      function openArkos() {
+        statusEl.textContent = "Opening ARKOS…";
+        if (insideTeams) {
+          microsoftTeams.app.openLink(ARKOS_URL).then(function () {
+            statusEl.textContent = "ARKOS opened in your browser.";
+          }).catch(function (err) {
+            statusEl.textContent = "Couldn't open ARKOS automatically. Click the button above.";
+            console.error("Teams openLink failed:", err);
+          });
+        } else {
+          // Standard browser path — works when testing the page outside Teams.
+          window.open(ARKOS_URL, "_blank", "noopener,noreferrer");
         }
       }
 
-      // Auto-launch on page load.
-      window.addEventListener("load", function () {
-        // Small delay so the user sees the launcher page briefly and understands what's happening.
-        setTimeout(goToArkos, 600);
-      });
+      // Wire up the button so a user click always works as a fallback.
+      btn.addEventListener("click", openArkos);
 
-      // Manual fallback if the auto-launch is blocked.
-      btn.addEventListener("click", goToArkos);
+      // On page load: initialize Teams (if applicable), then auto-launch ARKOS
+      // after a short delay so the user briefly sees the launcher render.
+      window.addEventListener("load", function () {
+        initializeTeams()
+          .catch(function () { /* not in Teams — that's fine */ })
+          .then(function () {
+            setTimeout(openArkos, 600);
+          });
+      });
     })();
   </script>
 </body>
